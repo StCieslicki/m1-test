@@ -1,0 +1,96 @@
+version: '3'
+
+services:
+  db:
+    image: postgres:13
+    environment:
+      - POSTGRES_PASSWORD=user_pass
+      - POSTGRES_USER=user
+    ports:
+    - 5432:5432
+    volumes:
+    - ./local/db_data:/var/lib/postgresql/data
+  liquibase:
+    image: liquibase/liquibase
+    volumes:
+    - ./db:/liquibase/changelog
+    deploy:
+      replicas: 0
+  redis-master:
+    image: bitnami/redis
+    environment:
+      - REDIS_PASSWORD=redis_pass
+      - REDIS_REPLICATION_MODE=master
+    ports:
+      - 6379:6379
+  redis-slave:
+    image: bitnami/redis
+    environment:
+      - REDIS_REPLICATION_MODE=slave
+      - REDIS_MASTER_HOST=redis-master
+      - REDIS_MASTER_PORT_NUMBER=6379
+      - REDIS_MASTER_PASSWORD=redis_pass
+      - REDIS_PASSWORD=redis_pass
+    ports:
+      - '6379'
+    depends_on:
+      - redis-master
+  redis-sentinel:
+    image: bitnami/redis-sentinel
+    links:
+      - redis-master
+      - redis-slave
+    environment:
+      - REDIS_MASTER_PASSWORD=redis_pass
+      - REDIS_MASTER_HOST=redis-master
+      - REDIS_SENTINEL_PASSWORD=redis_pass
+    deploy:
+      replicas: 3
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: user-backend:dev
+    ports:
+      - 80:80
+      - 83:83
+      - 5858:5858
+    volumes:
+      - .:/usr/app
+      - /usr/app/node_modules/
+    environment:
+      - PORT=80
+      - TOKEN_PORT=83
+      - DEBUG=user-backend:*
+      - DEBUG_DEPTH=5
+      - TOKEN_SECRET=secret
+      - SESSION_SECRET=session_secret
+      - REDIS_PASS=redis_pass
+      - REDIS_SENTINEL=redis-sentinel
+      - REDIS_PORT=26379
+      - REDIS_GROUP_NAME=mymaster
+      - DB_HOST=db
+      - DB_USER=user
+      - DB_PASS=user_pass
+      - DB_NAME=user
+      - NODE_ENV=development
+    links:
+      - db
+      - redis-sentinel
+  redis-insight:
+    image: redislabs/redisinsight:latest
+    ports:
+      - 8001:8001
+    volumes:
+      - ./local/redisinsight:/db
+  pgadmin:
+    image: dpage/pgadmin4
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=dev@dev.dev
+      - PGADMIN_DEFAULT_PASSWORD=dev
+    ports:
+      - 8002:80
+    volumes:
+      - ./local/pgadmin/data:/var/lib/pgadmin
+#      - ./local/pgadmin/servers.json:/pgadmin4/servers.json
+#      - ./local/pgadmin/dev.pgpass:/pgadmin4/dev.pgpass
